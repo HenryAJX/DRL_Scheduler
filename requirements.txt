@@ -1,0 +1,14 @@
+# requirements.txt
+# Core DRL and ML Framework
+torch>=2.0.0
+
+# Simulation and Environment
+gymnasium==0.29.1
+simpy==4.0.2
+
+# Data Handling and Numerics
+numpy==1.26.4
+pandas==2.2.2
+
+# Plotting and Visualization
+matplotlib==3.8.4
