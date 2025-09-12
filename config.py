@@ -18,7 +18,7 @@ ENV = {
     "num_gpus": 56,
     "top_k": 16,
     "time_step": 1.0,
-    "episode_max_time": 15000,
+    "episode_max_time": 15_000_000,
     "max_queue_len": 200.0, # For observation normalization
     "job_arrival_mode": "synthetic", # "synthetic", "google", "alibaba"
     "trace_path": None, # Path to real-world trace data
@@ -29,8 +29,8 @@ ENV = {
 # -------------------
 WORKLOAD = {
     "arrival_lambda": 2.5,
-    "runtime_mean": 600.0,
-    "runtime_std": 300.0,
+    "runtime_mean": 125000.0,
+    "runtime_std": 55000.0,
     "gpu_req_min": 1,
     "gpu_req_max": 8,
     "priority_levels": [0.5, 1.0, 2.5, 5.0],
@@ -43,10 +43,10 @@ WORKLOAD = {
 # -------------------
 TRAIN = {
     "seed": 0,
-    "algo": "sac",  # Default algorithm is now SAC
-    "max_episodes": 2000,
-    "max_steps_per_episode": 2000,
-    "save_interval": 50,
+    "algo": "sac",  # Default algorithm is SAC
+    "max_episodes": 200,
+    "max_steps_per_episode": 50000,
+    "save_interval": 10,
 }
 
 # -------------------
@@ -84,9 +84,9 @@ SAC = {
 # Reward weights
 # -------------------
 REWARD = {
-    "w_complete": 10.0, # Reward for completing a job (scaled by priority)
-    "w_wait": 0.4,      # Penalty for job waiting time in the queue
-    "w_util": 0.7,      # Reward for GPU utilization
+    "w_complete": 50.0, # Reward for completing a job (scaled by priority)
+    "w_wait": 0.05,      # Penalty for job waiting time in the queue
+    "w_util": 1.5,      # Reward for GPU utilization
     "w_flow": 0.3,     # Penalty for the number of jobs in the system
 }
 
@@ -94,10 +94,10 @@ REWARD = {
 # GPU heterogeneity
 # -------------------
 GPU_TYPES = [
-    {"name": "A100", "count": 4, "flops": 1.6e14},
-    {"name": "V100", "count": 4, "flops": 7.8e13},
-    {"name": "T4",   "count": 3, "flops": 8.1e12},
-    {"name": "4090", "count": 3, "flops": 2.1e31},
+    {"name": "A100", "count": 16, "flops": 1.6e14},
+    {"name": "V100", "count": 16, "flops": 7.8e13},
+    {"name": "T4",   "count": 12, "flops": 8.1e12},
+    {"name": "4090", "count": 12, "flops": 2.1e31},
 ]
 
 # -------------------

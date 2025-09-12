@@ -1,4 +1,4 @@
-# main.py
+from tqdm import tqdm
 import argparse
 import os
 import random
@@ -21,6 +21,8 @@ from metrics.plots import (
     per_priority_jct_plots,
     flops_weighted_utilization_plot,
 )
+# --- CHANGE: Import the new detailed logger ---
+from metrics.episode_job_logger import save_detailed_job_log
 from config import TRAIN, DQN, SAC, MODEL_DIR, LOG_DIR
 
 print("Torch version:", torch.__version__)
@@ -150,7 +152,10 @@ def run_baseline(algo, seed, workload):
 # D3QN
 # ------------------------
 
-def train_d3qn(seed, workload, resume_path=None, start_ep=0):
+# --- CHANGE: Pass the whole `args` object to access log_suffix ---
+def train_d3qn(args, workload):
+    seed = args.seed
+    resume_path = args.resume
     random.seed(seed)
     np.random.seed(seed)
     env = GPUClusterEnv()
@@ -159,6 +164,7 @@ def train_d3qn(seed, workload, resume_path=None, start_ep=0):
     action_dim = env.action_space.n
     agent = D3QNAgent(obs_dim, action_dim, DQN)
 
+    start_ep = 0
     if resume_path and os.path.exists(resume_path):
         agent.load(resume_path)
         print(f"[D3QN] Resumed training from checkpoint: {resume_path}")
@@ -174,36 +180,48 @@ def train_d3qn(seed, workload, resume_path=None, start_ep=0):
             obs, _ = env.reset(seed=seed + ep, workload=workload)
             terminated = truncated = False
             total_reward = 0.0
+            num_steps = 0
 
-            while not (terminated or truncated):
-                action = agent.select_action(obs)
-                next_obs, reward, terminated, truncated, info = env.step(action)
-                done_flag = terminated or truncated
-                agent.store_transition(obs, action, reward, next_obs, done_flag)
-                agent.update()
-                obs = next_obs
-                total_reward += reward
+            # --- ADDITION: Add tqdm progress bar for the inner training loop ---
+            max_steps = TRAIN.get("max_steps_per_episode", 5000)
+            with tqdm(total=max_steps, desc=f"D3QN Episode {ep}/{TRAIN['max_episodes']}") as pbar:
+                while not (terminated or truncated):
+                    action = agent.select_action(obs)
+                    next_obs, reward, terminated, truncated, info = env.step(action)
+                    done_flag = terminated or truncated
+                    agent.store_transition(obs, action, reward, next_obs, done_flag)
+                    agent.update()
+                    obs = next_obs
+                    total_reward += reward
+                    num_steps += 1
 
-            # Logging
+                    pbar.update(1)
+                    pbar.set_postfix(reward=f"{total_reward:.2f}")
+                    if num_steps >= max_steps:
+                        truncated = True # Manually truncate if max steps are reached
+
+            # Logging (Summary)
             completed_jobs = [j for j in env.completed_jobs if j.finish_time is not None]
             avg_jct = compute_avg_jct(completed_jobs)
             makespan = max([j.finish_time for j in completed_jobs]) if completed_jobs else 0.0
             utilization = compute_utilization(env, makespan) if makespan > 0 else 0.0
             print(f"[D3QN] ep={ep}, reward={total_reward:.2f}, avg_jct={avg_jct:.2f}, jobs={len(completed_jobs)}")
 
-            # Create a summary dictionary for the episode
             summary = {
                 "algo": "d3qn",
-                "seed": seed,
-                "episode": ep,
-                "avg_jct": avg_jct,
-                "makespan": makespan,
-                "utilization": utilization,
-                "total_reward": total_reward,
-                "num_jobs": len(completed_jobs),
+                "seed": seed, "episode": ep, "avg_jct": avg_jct,
+                "makespan": makespan, "utilization": utilization,
+                "total_reward": total_reward, "num_jobs": len(completed_jobs),
             }
-            # Append the summary to the training log file
-            append_summary(summary, os.path.join(LOG_DIR, "summary_train.csv"))
+            append_summary(summary, os.path.join(LOG_DIR, f"summary_train{args.log_suffix}.csv"))
+
+            # --- CHANGE: Add detailed per-job logging for this episode ---
+            save_detailed_job_log(
+                completed_jobs=env.completed_jobs,
+                episode=ep,
+                log_dir=LOG_DIR,
+                prefix=f"d3qn_seed{seed}{args.log_suffix}"
+            )
 
             # Periodic saves
             if (ep + 1) % TRAIN["save_interval"] == 0:
@@ -238,21 +256,10 @@ def evaluate_d3qn(pt_path, seed, workload):
 
 # ------------------------
 # SAC
-# ------------------------
-
-# Add a new helper function for evaluation
-def run_validation_episode(agent, seed, cluster_cfg, workload):
-    """Runs one deterministic episode and returns the average JCT."""
-    eval_env = GPUClusterEnv(cluster_cfg=cluster_cfg)
-    obs, _ = eval_env.reset(seed=seed, workload=workload)
-    terminated = truncated = False
-    while not (terminated or truncated):
-        action = agent.select_action(obs, deterministic=True)
-        obs, _, terminated, truncated, _ = eval_env.step(action)
-    
-    return compute_avg_jct(eval_env.completed_jobs)
-
-def train_sac(seed, workload, resume_path=None, start_ep=0):
+# -----------------------
+def train_sac(args, workload):
+    seed = args.seed
+    resume_path = args.resume
     random.seed(seed)
     np.random.seed(seed)
     env = GPUClusterEnv()
@@ -261,6 +268,7 @@ def train_sac(seed, workload, resume_path=None, start_ep=0):
     action_dim = env.action_space.n
     agent = SACAgent(obs_dim, action_dim, SAC)
 
+    start_ep = 0
     if resume_path and os.path.exists(resume_path):
         agent.load(resume_path)
         print(f"[SAC] Resumed training from checkpoint: {resume_path}")
@@ -276,36 +284,48 @@ def train_sac(seed, workload, resume_path=None, start_ep=0):
             obs, _ = env.reset(seed=seed + ep, workload=workload)
             terminated = truncated = False
             total_reward = 0.0
+            num_steps = 0
 
-            while not (terminated or truncated):
-                action = agent.select_action(obs, deterministic=False)
-                next_obs, reward, terminated, truncated, info = env.step(action)
-                done_flag = terminated or truncated
-                agent.store_transition(obs, action, reward, next_obs, done_flag)
-                agent.update()
-                obs = next_obs
-                total_reward += reward
+            # --- ADDITION: Add tqdm progress bar for the inner training loop ---
+            max_steps = TRAIN.get("max_steps_per_episode", 5000)
+            with tqdm(total=max_steps, desc=f"SAC Episode {ep}/{TRAIN['max_episodes']}") as pbar:
+                while not (terminated or truncated):
+                    action = agent.select_action(obs, deterministic=False)
+                    next_obs, reward, terminated, truncated, info = env.step(action)
+                    done_flag = terminated or truncated
+                    agent.store_transition(obs, action, reward, next_obs, done_flag)
+                    agent.update()
+                    obs = next_obs
+                    total_reward += reward
+                    num_steps += 1
 
-            # Logging
+                    pbar.update(1)
+                    pbar.set_postfix(reward=f"{total_reward:.2f}")
+                    if num_steps >= max_steps:
+                        truncated = True # Manually truncate if max steps are reached
+            
+            # Logging (Summary)
             completed_jobs = [j for j in env.completed_jobs if j.finish_time is not None]
             avg_jct = compute_avg_jct(completed_jobs)
             makespan = max([j.finish_time for j in completed_jobs]) if completed_jobs else 0.0
             utilization = compute_utilization(env, makespan) if makespan > 0 else 0.0
             print(f"[SAC] ep={ep}, reward={total_reward:.2f}, avg_jct={avg_jct:.2f}, jobs={len(completed_jobs)}")
-
-            # Create a summary dictionary for the episode
+            
             summary = {
                 "algo": "sac",
-                "seed": seed,
-                "episode": ep,
-                "avg_jct": avg_jct,
-                "makespan": makespan,
-                "utilization": utilization,
-                "total_reward": total_reward,
-                "num_jobs": len(completed_jobs),
+                "seed": seed, "episode": ep, "avg_jct": avg_jct,
+                "makespan": makespan, "utilization": utilization,
+                "total_reward": total_reward, "num_jobs": len(completed_jobs),
             }
-            # Append the summary to the training log file
-            append_summary(summary, os.path.join(LOG_DIR, "summary_train.csv"))
+            append_summary(summary, os.path.join(LOG_DIR, f"summary_train{args.log_suffix}.csv"))
+
+            # --- CHANGE: Add detailed per-job logging for this episode ---
+            save_detailed_job_log(
+                completed_jobs=env.completed_jobs,
+                episode=ep,
+                log_dir=LOG_DIR,
+                prefix=f"sac_seed{seed}{args.log_suffix}"
+            )
 
             # Periodic saves
             if (ep + 1) % TRAIN["save_interval"] == 0:
@@ -328,10 +348,20 @@ def evaluate_sac(pt_path, seed, workload):
     agent.load(pt_path)
 
     terminated = truncated = False
+
+    # --- SETUP TQDM ---
+    # Set a max number of steps to prevent a true infinite loop
+    max_steps = TRAIN.get("max_steps_per_episode", 5000) 
+    progress_bar = tqdm(total=max_steps, desc="Evaluating SAC")
+
     while not (terminated or truncated):
         action = agent.select_action(obs, deterministic=True)
         obs, r, terminated, truncated, info = env.step(action)
 
+        progress_bar.update(1)
+    
+
+    progress_bar.close() # --- CLOSE THE BAR ---
     _save_eval_outputs(env, "sac_eval")
 
 
@@ -346,6 +376,8 @@ def main():
     parser.add_argument("--seed", type=int, default=TRAIN["seed"])
     parser.add_argument("--resume", type=str, help="Path to checkpoint file to resume training from.")
     parser.add_argument("--checkpoint", type=str, help="Path to checkpoint file for evaluation.")
+    # --- CHANGE: Add log_suffix argument for unique log filenames ---
+    parser.add_argument("--log_suffix", type=str, default="", help="Suffix for log files to keep them unique.")
     
     # Workload arguments
     parser.add_argument("--workload_type", choices=["synthetic", "google", "alibaba"], default="synthetic",
@@ -377,9 +409,11 @@ def main():
     # --- Execute Mode ---
     if args.mode == "train":
         if args.algo == "d3qn":
-            train_d3qn(seed=args.seed, workload=workload, resume_path=args.resume)
+            # --- CHANGE: Pass the whole `args` object ---
+            train_d3qn(args, workload=workload)
         elif args.algo == "sac":
-            train_sac(seed=args.seed, workload=workload, resume_path=args.resume)
+            # --- CHANGE: Pass the whole `args` object ---
+            train_sac(args, workload=workload)
         else:
             print("Training is not implemented for baselines.")
 
