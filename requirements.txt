@@ -12,3 +12,6 @@ pandas==2.2.2
 
 # Plotting and Visualization
 matplotlib==3.8.4
+
+# Visualizing Progress
+tqdm
