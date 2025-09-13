@@ -351,7 +351,7 @@ def evaluate_sac(pt_path, seed, workload):
 
     # --- SETUP TQDM ---
     # Set a max number of steps to prevent a true infinite loop
-    max_steps = TRAIN.get("max_steps_per_episode", 5000) 
+    max_steps = TRAIN.get("max_steps_per_episode", 50000) 
     progress_bar = tqdm(total=max_steps, desc="Evaluating SAC")
 
     while not (terminated or truncated):
