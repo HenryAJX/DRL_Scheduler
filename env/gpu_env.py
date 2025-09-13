@@ -1,4 +1,5 @@
 # env/gpu_env.py
+import bisect
 import random
 from typing import Optional, Tuple, List, Dict
 
@@ -87,10 +88,11 @@ class GPUClusterEnv(gym.Env):
     def step(self, action: int):
         assert self.env is not None
         info = {}
+        reward = 0.0
         
-        # Action execution: try to schedule a job
+        # Case 1: The action is a valid index for a pending job
         if 0 <= action < self.top_k and action < len(self.pending_queue):
-            job_to_schedule = self.pending_queue[action]
+            job_to_schedule = self.pending_queue[action][2]
             
             alloc_func = greedy_allocate if self.cluster_cfg["ALLOC_STRATEGY"] == "greedy" else homogeneous_allocate
             result = alloc_func(self.gpu_state, self.cluster_cfg["gpu_type_info"], job_to_schedule.gpus)
@@ -102,6 +104,12 @@ class GPUClusterEnv(gym.Env):
                 self.env.process(self._run_job(job_to_schedule))
                 self.running_jobs[job_to_schedule.job_id] = job_to_schedule
                 self.pending_queue.pop(action)
+        # Case 2: The action is the EXPLICIT "do nothing" action
+        elif action == self.top_k:
+            pass
+        # Case 3: The action is invalid (out of bounds for the current state)
+        else:
+            reward -= 0.1
 
         # Advance simulation time
         prev_completed_count = len(self.completed_jobs)
@@ -115,7 +123,7 @@ class GPUClusterEnv(gym.Env):
         reward_complete = self.w_complete * sum(j.priority for j in newly_completed_jobs)
         
         # 2. Waiting Time Penalty
-        penalty_wait = self.w_wait * sum((self.now - j.arrival_time) / 1000.0 for j in self.pending_queue)
+        penalty_wait = self.w_wait * sum((self.now - job_tuple[1]) / 1000.0 for job_tuple in self.pending_queue)
         
         # 3. Utilization Reward
         idle_gpus = sum(self.gpu_state.values())
@@ -124,13 +132,12 @@ class GPUClusterEnv(gym.Env):
         # 4. System Flow Penalty
         penalty_flow = self.w_flow * (len(self.pending_queue) + len(self.running_jobs))
         
-        reward = reward_complete - penalty_wait + reward_util - penalty_flow
+        reward += reward_complete - penalty_wait + reward_util - penalty_flow
 
         # Get next state and termination conditions
         obs = self._get_observation()
         terminated = self.next_job_index >= len(self.workload) and not self.pending_queue and not self.running_jobs
         truncated = self.now >= self.episode_max_time
-
         return obs.astype(np.float32), float(reward), terminated, truncated, info
 
     def _job_arrival_process(self):
@@ -141,10 +148,13 @@ class GPUClusterEnv(gym.Env):
             if job.arrival_time > self.env.now:
                 yield self.env.timeout(job.arrival_time - self.env.now)
             
-            self.pending_queue.append(job)
+            # Create a tuple that sorts correctly: high priority (negative makes it descending), then low arrival time.
+            job_tuple = (-job.priority, job.arrival_time, job)
+
+            # Insert the tuple efficiently while maintaining the sorted order.
+            bisect.insort(self.pending_queue, job_tuple)
+
             self.next_job_index += 1
-            # Sort queue by priority (higher is better) then FCFS as a tie-breaker
-            self.pending_queue.sort(key=lambda j: (-j.priority, j.arrival_time))
 
 
     def _run_job(self, job: Job):
@@ -176,7 +186,7 @@ class GPUClusterEnv(gym.Env):
         obs_jobs = []
         for i in range(self.top_k):
             if i < len(self.pending_queue):
-                j = self.pending_queue[i]
+                j = self.pending_queue[i][2]
                 # Normalize features to be roughly in [-1, 1]
                 p = float(j.priority) / self._max_priority if self._max_priority > 0 else 0.0
                 fl = float(j.flops) / self._max_flops
