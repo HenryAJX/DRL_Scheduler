@@ -1,5 +1,6 @@
 # schedulers/baselines.py
 from typing import Any, List, Optional
+from env.job import Job
 
 def _available_total(gpu_state: Any) -> int:
     """Return total available GPU units from the state dictionary."""
@@ -18,7 +19,8 @@ def _fits_in_any_type(required: int, gpu_state: Any) -> bool:
 
 def fcfs_choice(pending_queue: List[Any], gpu_state: Any) -> Optional[int]:
     """First-Come-First-Served: pick the first job in the queue that fits."""
-    for idx, job in enumerate(pending_queue):
+    for idx, job_tuple in enumerate(pending_queue):
+        job = job_tuple[3]
         req = job.gpus
         if _fits_in_any_type(req, gpu_state):
             return idx
@@ -28,7 +30,8 @@ def sjf_choice(pending_queue: List[Any], gpu_state: Any) -> Optional[int]:
     """Shortest-Job-First among jobs that fit."""
     best_idx = None
     best_runtime = float("inf")
-    for idx, job in enumerate(pending_queue):
+    for idx, job_tuple in enumerate(pending_queue):
+        job = job_tuple[3]
         req = job.gpus
         if not _fits_in_any_type(req, gpu_state):
             continue
