@@ -18,7 +18,7 @@ ENV = {
     "num_gpus": 56,
     "top_k": 16,
     "time_step": 1.0,
-    "episode_max_time": 15_000_000,
+    "episode_max_time": 150000,
     "max_queue_len": 200.0, # For observation normalization
     "job_arrival_mode": "synthetic", # "synthetic", "google", "alibaba"
     "trace_path": None, # Path to real-world trace data
@@ -29,8 +29,8 @@ ENV = {
 # -------------------
 WORKLOAD = {
     "arrival_lambda": 2.5,
-    "runtime_mean": 125000.0,
-    "runtime_std": 55000.0,
+    "runtime_mean": 3000.0,
+    "runtime_std": 2500.0,
     "gpu_req_min": 1,
     "gpu_req_max": 8,
     "priority_levels": [0.5, 1.0, 2.5, 5.0],
@@ -44,8 +44,8 @@ WORKLOAD = {
 TRAIN = {
     "seed": 0,
     "algo": "sac",  # Default algorithm is SAC
-    "max_episodes": 200,
-    "max_steps_per_episode": 50000,
+    "max_episodes": 50,
+    "max_steps_per_episode": 2000,
     "save_interval": 10,
 }
 
@@ -69,9 +69,9 @@ DQN = {
 # -------------------
 SAC = {
     "hidden_sizes": [256, 256],
-    "lr_actor": 3e-4,
-    "lr_critic": 3e-4,
-    "lr_alpha": 3e-4,
+    "lr_actor": 5e-5,   # <--  Lower this from 3e-4
+    "lr_critic": 5e-5,   # <--  Lower this from 3e-4
+    "lr_alpha": 5e-5,   # <-- Lower this from 3e-4
     "gamma": 0.95,
     "tau": 0.005,      # Soft update coefficient
     "batch_size": 256,
@@ -94,10 +94,10 @@ REWARD = {
 # GPU heterogeneity
 # -------------------
 GPU_TYPES = [
-    {"name": "A100", "count": 16, "flops": 1.6e14},
-    {"name": "V100", "count": 16, "flops": 7.8e13},
+    {"name": "A100", "count": 16, "flops": 1.95e13},
+    {"name": "V100", "count": 16, "flops": 1.57e13},
     {"name": "T4",   "count": 12, "flops": 8.1e12},
-    {"name": "4090", "count": 12, "flops": 2.1e31},
+    {"name": "4090", "count": 12, "flops": 8.26e13},
 ]
 
 # -------------------
