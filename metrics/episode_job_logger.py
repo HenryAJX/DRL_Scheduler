@@ -1,34 +1,22 @@
+# In metrics/episode_job_logger.py
+
 import os
 import pandas as pd
 from typing import List
-from env.job import Job
+# Note: You may need to adjust the import path for Job depending on your project structure
+from env.job import Job 
 
-def save_detailed_job_log(
-    *,
-    completed_jobs: List[Job],
-    episode: int,
-    log_dir: str,
-    prefix: str
-):
+def save_detailed_job_log(completed_jobs: List[Job], log_path: str):
     """
-    Saves a detailed log of all completed jobs for an episode by appending
-    them to a single, run-specific CSV file.
-
-    This creates one large file per training run, with an 'episode' column
-    to distinguish data from different episodes.
+    Saves a detailed log of completed jobs to a specific CSV file, overwriting
+    the file if it already exists. This is suitable for evaluation and partial saves.
 
     Args:
-        completed_jobs: A list of Job objects that completed during the episode.
-        episode: The current episode number.
-        log_dir: The base directory for all logs.
-        prefix: A unique prefix for the run (e.g., 'sac_seed0').
+        completed_jobs: A list of all Job objects completed so far.
+        log_path: The full, direct path to the output CSV file.
     """
     if not completed_jobs:
         return  # Nothing to log
-
-    # Use a consistent filename for the entire run, stored in the base log directory
-    filename = f"{prefix}_detailed_jobs.csv"
-    log_path = os.path.join(log_dir, filename)
 
     rows = []
     for j in completed_jobs:
@@ -36,7 +24,6 @@ def save_detailed_job_log(
             continue
         
         rows.append({
-            "episode": episode,  # Add episode number to the data
             "job_id": j.job_id,
             "user_id": j.user_id,
             "priority": j.priority,
@@ -53,11 +40,9 @@ def save_detailed_job_log(
     if not rows:
         return
 
-    df = pd.DataFrame(rows)
-    
-    # Check if the file already exists to decide whether to write the header
-    header = not os.path.exists(log_path)
-    
-    # Append to the CSV file without creating a new directory
-    df.to_csv(log_path, mode='a', header=header, index=False)
-
+    try:
+        df = pd.DataFrame(rows)
+        # Write to the CSV, overwriting the file completely
+        df.to_csv(log_path, mode='w', header=True, index=False)
+    except Exception as e:
+        print(f"[Logger Error] Failed to save detailed job log to {log_path}: {e}")

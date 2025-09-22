@@ -34,17 +34,15 @@ def jct_vs_arrival_plot(jobs, outdir, prefix="eval", bins=200):
         return
     df["jct"] = df["finish"] - df["arrival"]
 
-    # scatter colored by priority (map distinct priorities to integers)
+    # --- Scatter Plot (No Changes Here) ---
     priorities = sorted(df["priority"].unique())
     priority_map = {p: i for i, p in enumerate(priorities)}
     df["pidx"] = df["priority"].map(priority_map)
-
     plt.figure(figsize=(8, 5))
     sc = plt.scatter(df["arrival"], df["jct"], c=df["pidx"], alpha=0.6, s=10)
     plt.xlabel("Arrival time (s)")
     plt.ylabel("Job Completion Time (JCT) (s)")
     plt.title("JCT vs Arrival Time")
-    # create legend mapping
     handles = []
     for p in priorities:
         handles.append(plt.Line2D([], [], marker="o", linestyle="None",
@@ -56,26 +54,40 @@ def jct_vs_arrival_plot(jobs, outdir, prefix="eval", bins=200):
     plt.close()
     print(f"[plots] Saved JCT vs arrival -> {path}")
 
-    # also produce a rolling-mean curve (binned)
+    # --- Binned Mean Plot (Corrected Logic) ---
     try:
+        if df.empty or len(df) < bins:
+             print("[plots] Not enough data to produce binned mean JCT.")
+             return
+
         df_sorted = df.sort_values("arrival")
-        # compute binned mean
-        df_sorted["arrival_bin"] = pd.cut(df_sorted["arrival"], bins=bins, labels=False)
-        bmeans = df_sorted.groupby("arrival_bin")["jct"].mean()
-        bin_centers = (pd.cut(df_sorted["arrival"], bins=bins).categories.mid).astype(float)
-        # plot smoothed line
+        
+        # Use pd.cut to create the bins. This returns a Series of Intervals.
+        arrival_bins = pd.cut(df_sorted["arrival"], bins=bins)
+        
+        # Group by these bins and calculate the mean JCT for each.
+        bmeans = df_sorted.groupby(arrival_bins)["jct"].mean()
+
+        # --- THE FIX ---
+        # Get the midpoints of the bins from the index's categories.
+        # bmeans.index is a CategoricalIndex.
+        # bmeans.index.categories is an IntervalIndex, which has the .mid attribute.
+        bin_centers = bmeans.index.categories.mid
+
+        # Plot using the actual time values (bin_centers) for the x-axis.
         plt.figure(figsize=(8, 4))
-        plt.plot(bmeans.index.values, bmeans.values)
-        plt.xlabel("Arrival bin")
+        plt.plot(bin_centers, bmeans.values)
+        plt.xlabel("Arrival Time Bins (s)")
         plt.ylabel("Mean JCT (s)")
-        plt.title("Binned mean JCT over arrival order")
+        plt.title("Binned Mean JCT over Arrival Time")
         bpath = os.path.join(outdir, f"{prefix}_jct_arrival_binned.png")
         plt.tight_layout()
         plt.savefig(bpath)
         plt.close()
         print(f"[plots] Saved binned mean JCT -> {bpath}")
     except Exception as e:
-        print("[plots] failed to produce binned mean JCT:", e)
+        print(f"[plots] failed to produce binned mean JCT: {e}")
+
 
 def per_priority_jct_plots(jobs, outdir, prefix="eval"):
     """
@@ -236,11 +248,3 @@ def aggregate_runs_bar(avg_stats: List[Dict[str, Any]], outdir, prefix="agg"):
     plt.savefig(out_path)
     plt.close()
     print(f"[plots] Saved aggregated avg JCT bar -> {out_path}")
-
-# metrics/plots.py
-aggregate_runs_bar([
-    {"label": "Greedy+Direct", "avg_jct": 12.3, "std_jct": 1.2},
-    {"label": "Homog+Direct", "avg_jct": 15.0, "std_jct": 1.5},
-    {"label": "Greedy+SimPy", "avg_jct": 13.2, "std_jct": 1.3},
-    {"label": "Homog+SimPy", "avg_jct": 17.8, "std_jct": 1.7},
-], outdir="logs", prefix="sensitivity")
