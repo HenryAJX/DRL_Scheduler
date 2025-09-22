@@ -92,7 +92,7 @@ class GPUClusterEnv(gym.Env):
         
         # Case 1: The action is a valid index for a pending job
         if 0 <= action < self.top_k and action < len(self.pending_queue):
-            job_to_schedule = self.pending_queue[action][2]
+            job_to_schedule = self.pending_queue[action][3]
             
             alloc_func = greedy_allocate if self.cluster_cfg["ALLOC_STRATEGY"] == "greedy" else homogeneous_allocate
             result = alloc_func(self.gpu_state, self.cluster_cfg["gpu_type_info"], job_to_schedule.gpus)
@@ -149,7 +149,7 @@ class GPUClusterEnv(gym.Env):
                 yield self.env.timeout(job.arrival_time - self.env.now)
             
             # Create a tuple that sorts correctly: high priority (negative makes it descending), then low arrival time.
-            job_tuple = (-job.priority, job.arrival_time, job)
+            job_tuple = (-job.priority, job.arrival_time, job.job_id, job)
 
             # Insert the tuple efficiently while maintaining the sorted order.
             bisect.insort(self.pending_queue, job_tuple)
@@ -182,11 +182,15 @@ class GPUClusterEnv(gym.Env):
         total_avail = sum(self.gpu_state.values())
         gpu_avail_frac = float(total_avail) / float(self.num_gpus) if self.num_gpus > 0 else 0.0
 
+        # --- OPTIMIZATION ---
+        # Only consider a slice of the queue, not the whole thing
+        q_len = int(min(len(self.pending_queue), self.max_queue_len))
+
         # Job features
         obs_jobs = []
         for i in range(self.top_k):
-            if i < len(self.pending_queue):
-                j = self.pending_queue[i][2]
+            if i < q_len:
+                j = self.pending_queue[i][3]
                 # Normalize features to be roughly in [-1, 1]
                 p = float(j.priority) / self._max_priority if self._max_priority > 0 else 0.0
                 fl = float(j.flops) / self._max_flops
