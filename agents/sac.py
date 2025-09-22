@@ -8,6 +8,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 from utils.replay import ReplayBuffer
+from safetensors.torch import load_file
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -75,6 +76,7 @@ class SACAgent:
         return x[0] if isinstance(x, (tuple, list)) else x
 
     def select_action(self, obs, deterministic=False):
+        
         with torch.no_grad():
             obs_arr = self._extract_obs(obs)
             obs_t = torch.tensor(np.array(obs_arr), dtype=torch.float32, device=DEVICE).unsqueeze(0)
@@ -166,12 +168,37 @@ class SACAgent:
         }, path)
 
     def load(self, path):
-        checkpoint = torch.load(path, map_location=DEVICE)
-        self.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.q1.load_state_dict(checkpoint['q1_state_dict'])
-        self.q2.load_state_dict(checkpoint['q2_state_dict'])
-        self.log_alpha = checkpoint['log_alpha']
+        # --- START OF MODIFIED LOAD FUNCTION ---
+        if path.endswith(".safetensors"):
+            print("Loading model from .safetensors file...")
+            flat_checkpoint = load_file(path, device=DEVICE)
+            
+            # Reconstruct the necessary state dictionaries from the flattened keys
+            actor_dict = {k.split('.', 1)[1]: v for k, v in flat_checkpoint.items() if k.startswith('actor_state_dict.')}
+            q1_dict = {k.split('.', 1)[1]: v for k, v in flat_checkpoint.items() if k.startswith('q1_state_dict.')}
+            q2_dict = {k.split('.', 1)[1]: v for k, v in flat_checkpoint.items() if k.startswith('q2_state_dict.')}
+
+            self.actor.load_state_dict(actor_dict)
+            self.q1.load_state_dict(q1_dict)
+            self.q2.load_state_dict(q2_dict)
+            
+            # Load single tensors like log_alpha
+            if 'log_alpha' in flat_checkpoint:
+                self.log_alpha = flat_checkpoint['log_alpha']
+
+        else: # Original logic for loading .pt files
+            print("Loading model from .pt file...")
+            checkpoint = torch.load(path, map_location=DEVICE)
+            self.actor.load_state_dict(checkpoint['actor_state_dict'])
+            self.q1.load_state_dict(checkpoint['q1_state_dict'])
+            self.q2.load_state_dict(checkpoint['q2_state_dict'])
+            if 'log_alpha' in checkpoint:
+                self.log_alpha = checkpoint['log_alpha']
         
+        # --- COMMON LOGIC FOR BOTH FORMATS ---
+        # Ensure target networks and optimizers are correctly initialized after loading
         self.q1_target.load_state_dict(self.q1.state_dict())
         self.q2_target.load_state_dict(self.q2.state_dict())
-        self.alpha_optim = optim.Adam([self.log_alpha], lr=self.config["lr_alpha"])
+        self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=self.config["lr_alpha"])
+        print("Model loaded successfully.")
+        # --- END OF MODIFIED LOAD FUNCTION ---
